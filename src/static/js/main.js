@@ -272,111 +272,122 @@ function renderHeatmap() {
 
     if (!geometryData) {
         heatCtx.fillStyle = '#666';
-        heatCtx.font = '16px monospace';
-        heatCtx.fillText('No data', 20, 30);
-        return;
-    }
+        // Debug: Fill background to prove canvas exists
+        heatCtx.fillStyle = '#111';
+        heatCtx.fillRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
 
-    const transform = getTransform(heatCtx, geometryData);
+        if (geometryData) {
+            // Use the same transform as the geometry view
+            const transform = getTransform(heatCtx, geometryData);
 
-    // 1. Draw Heatmap Image (if available)
-    if (history.length > 0 && currentFrameIndex >= 0) {
-        const gridState = history[currentFrameIndex];
-        if (gridState) {
-            const rows = gridState.length;
-            const cols = gridState[0].length;
+            // Debug: Show scale info
+            heatCtx.fillStyle = '#888';
+            heatCtx.font = '12px monospace';
+            heatCtx.fillText(`Geo: ${geometryData.length} pts`, 10, 20);
+            heatCtx.fillText(`Scale: ${transform.scale.toFixed(1)}`, 10, 35);
+            heatCtx.fillText(`Offset: ${transform.offsetX.toFixed(0)},${transform.offsetY.toFixed(0)}`, 10, 50);
 
-            const offCanvas = document.createElement('canvas');
-            offCanvas.width = cols;
-            offCanvas.height = rows;
-            const offCtx = offCanvas.getContext('2d');
-            const imgData = offCtx.createImageData(cols, rows);
-            const data = imgData.data;
+            // Draw Heatmap Content
+            const gridState = history[currentFrameIndex];
+            if (gridState) {
+                heatCtx.fillText(`Grid: ${gridState.length}x${gridState[0].length}`, 10, 65);
 
-            for (let r = 0; r < rows; r++) {
-                for (let c = 0; c < cols; c++) {
-                    const val = gridState[r][c];
-                    const t = Math.min(Math.max(val / 100, 0), 1);
-                    const [rVal, gVal, bVal] = getHeatColorRGB(t);
-                    const index = (r * cols + c) * 4;
-                    data[index] = rVal;
-                    data[index + 1] = gVal;
-                    data[index + 2] = bVal;
-                    data[index + 3] = 255;
+                const rows = gridState.length;
+                const cols = gridState[0].length;
+                const GRID_RES = 0.1;
+
+                const offCanvas = document.createElement('canvas');
+                offCanvas.width = cols; offCanvas.height = rows;
+                const offCtx = offCanvas.getContext('2d');
+                const imgData = offCtx.createImageData(cols, rows);
+                const data = imgData.data;
+
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const val = gridState[r][c];
+                        const t = Math.min(Math.max(val / 100, 0), 1);
+                        const [rVal, gVal, bVal] = getHeatColorRGB(t);
+                        const index = (r * cols + c) * 4;
+                        data[index] = rVal; data[index + 1] = gVal; data[index + 2] = bVal; data[index + 3] = 255;
+                    }
                 }
+                offCtx.putImageData(imgData, 0, 0);
+
+                heatCtx.save();
+
+                // DEBUG: CLIPPING DISABLED TEMPORARILY
+                // drawPolygon(heatCtx, geometryData, transform);
+                // heatCtx.clip();
+
+                heatCtx.imageSmoothingEnabled = true;
+                heatCtx.imageSmoothingQuality = 'high';
+
+                const destX = transform.offsetX;
+                const destY = transform.offsetY;
+                const destW = cols * GRID_RES * transform.scale;
+                const destH = rows * GRID_RES * transform.scale;
+
+                // Debug: Draw rect where image should be
+                heatCtx.strokeStyle = 'yellow';
+                heatCtx.strokeRect(destX, destY, destW, destH);
+
+                heatCtx.drawImage(offCanvas, destX, destY, destW, destH);
+
+                heatCtx.restore();
+            } else {
+                heatCtx.fillStyle = '#f00';
+                heatCtx.fillText("No Grid State (Click Run)", 10, 80);
             }
-            offCtx.putImageData(imgData, 0, 0);
 
-            heatCtx.save();
-
-            // Clip to Polygon
+            // Draw Boundary on top
+            heatCtx.strokeStyle = '#ffffff';
+            heatCtx.lineWidth = 2;
             drawPolygon(heatCtx, geometryData, transform);
-            heatCtx.clip();
-
-            heatCtx.imageSmoothingEnabled = true;
-            heatCtx.imageSmoothingQuality = 'high';
-
-            // Calculate destination rect
-            // The grid starts at World(0,0) and extends to World(Width, Height)
-            // ScreenX = (WorldX * scale) + offsetX
-            // destX = (0 * scale) + offsetX = offsetX
-
-            const destX = transform.offsetX;
-            const destY = transform.offsetY;
-            const destW = cols * GRID_RES * transform.scale;
-            const destH = rows * GRID_RES * transform.scale;
-
-            heatCtx.drawImage(offCanvas, destX, destY, destW, destH);
-
-            heatCtx.restore();
+            heatCtx.stroke();
+        } else {
+            heatCtx.fillStyle = 'red';
+            heatCtx.font = '20px Arial';
+            heatCtx.fillText('NO GEOMETRY LOADED', 20, 40);
+        }
+        // Mesh Overlay
+        if (showMesh && history.length > 0) {
+            // Optional: Draw mesh lines if desired, using similar logic
         }
     }
 
-    // 2. Maximum Boundary Overlay
-    heatCtx.strokeStyle = '#ffffff';
-    heatCtx.lineWidth = 2;
-    drawPolygon(heatCtx, geometryData, transform);
-    heatCtx.stroke();
-
-    // Mesh Overlay
-    if (showMesh && history.length > 0) {
-        // Optional: Draw mesh lines if desired, using similar logic
+    function drawPolygon(ctx, points, { scale, offsetX, offsetY }) {
+        ctx.beginPath();
+        points.forEach((p, i) => {
+            const x = p[0] * scale + offsetX;
+            const y = p[1] * scale + offsetY;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
     }
-}
 
-function drawPolygon(ctx, points, { scale, offsetX, offsetY }) {
-    ctx.beginPath();
-    points.forEach((p, i) => {
-        const x = p[0] * scale + offsetX;
-        const y = p[1] * scale + offsetY;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-}
-
-function getHeatColorRGB(t) {
-    const hue = (1.0 - t) * 240;
-    return hslToRgb(hue / 360, 1.0, 0.5);
-}
-
-function hslToRgb(h, s, l) {
-    let r, g, b;
-    if (s === 0) { r = g = b = l; } else {
-        const hue2rgb = (p, q, t) => {
-            if (t < 0) t += 1; if (t > 1) t -= 1;
-            if (t < 1 / 6) return p + (q - p) * 6 * t;
-            if (t < 1 / 2) return q;
-            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-            return p;
-        };
-        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-        const p = 2 * l - q;
-        r = hue2rgb(p, q, h + 1 / 3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1 / 3);
+    function getHeatColorRGB(t) {
+        const hue = (1.0 - t) * 240;
+        return hslToRgb(hue / 360, 1.0, 0.5);
     }
-    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
-}
 
-// Init
-resizeCanvas(); // Ensure size is correct before load
-loadGeometryList();
+    function hslToRgb(h, s, l) {
+        let r, g, b;
+        if (s === 0) { r = g = b = l; } else {
+            const hue2rgb = (p, q, t) => {
+                if (t < 0) t += 1; if (t > 1) t -= 1;
+                if (t < 1 / 6) return p + (q - p) * 6 * t;
+                if (t < 1 / 2) return q;
+                if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                return p;
+            };
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            r = hue2rgb(p, q, h + 1 / 3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1 / 3);
+        }
+        return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+    }
+
+    // Init
+    resizeCanvas(); // Ensure size is correct before load
+    loadGeometryList();
