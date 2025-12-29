@@ -1,5 +1,8 @@
 import numpy as np
+import cv2  # Requires: pip install opencv-python
 from utils import load_config
+import hashlib
+import json
 
 class HeatMapSolver:
     def __init__(self, config_path='../config.json'):
@@ -8,119 +11,126 @@ class HeatMapSolver:
         self.physics = self.config['physics_constants']
         self.heat_sources = self.config['heat_sources']
 
-    def _rasterize_geometry(self, geometry, grid_shape):
+        # === 1. Caching Variables ===
+        # Store the last calculated mask to avoid re-computing it every step
+        self._cached_mask = None
+        self._last_geometry_hash = None
+        self._cached_grid_shape = None
+
+        # === 3. Stability Check (CFL Condition) ===
+        self._validate_stability()
+
+    def _validate_stability(self):
         """
-        Creates a boolean mask where True indicates inside the room.
-        Uses a simple ray-casting algorithm for point-in-polygon.
-        
-        Args:
-            geometry (list): Polygon vertices [[x,y], ...].
-            grid_shape (tuple): (rows, cols) of the grid.
-            
-        Returns:
-            numpy.ndarray: Boolean mask (True=Inside, False=Wall/Outside).
+        Validates if the parameters satisfy the Heat Equation stability condition (CFL):
+        dt <= dx^2 / (4 * alpha)
         """
-        rows, cols = grid_shape
-        mask = np.zeros(grid_shape, dtype=bool)
-        
-        # Pre-compute edges
-        poly = np.array(geometry)
-        edges = []
-        for i in range(len(poly)):
-            p1 = poly[i]
-            p2 = poly[(i + 1) % len(poly)]
-            edges.append((p1, p2))
-            
+        alpha = self.physics['thermal_diffusivity']
+        dt = self.config['simulation_settings']['time_step_seconds']
         dx = self.grid_resolution
         
-        # Check center of each cell
-        for r in range(rows):
-            y = r * dx + dx/2
-            for c in range(cols):
-                x = c * dx + dx/2
-                
-                # Ray casting to the right
-                intersections = 0
-                for p1, p2 in edges:
-                    # Check if ray intersects edge
-                    # Ray: (x, y) -> (infinity, y)
-                    # Edge: p1 -> p2
-                    
-                    x1, y1 = p1
-                    x2, y2 = p2
-                    
-                    # Check if edge spans the y-coordinate of the point
-                    if (y1 > y) != (y2 > y):
-                        # Compute x-coordinate of intersection
-                        x_intersect = (x2 - x1) * (y - y1) / (y2 - y1) + x1
-                        if x < x_intersect:
-                            intersections += 1
-                            
-                if intersections % 2 == 1:
-                    mask[r, c] = True
-                    
-        return mask
+        limit = (dx ** 2) / (4 * alpha)
+        
+        if dt > limit:
+            raise ValueError(
+                f"Configuration Error: Simulation unstable!\n"
+                f"Time step (dt={dt}) is too large for the resolution.\n"
+                f"Maximum allowed dt is {limit:.6f} seconds."
+            )
+
+    def _get_geometry_hash(self, geometry):
+        """Generates a unique hash for the geometry to detect changes."""
+        # JSON string dump is an easy way to hash nested lists
+        s = json.dumps(geometry, sort_keys=True)
+        return hashlib.md5(s.encode('utf-8')).hexdigest()
+
+    def _rasterize_geometry(self, geometry, grid_shape):
+        """
+        === 2. Optimization using OpenCV ===
+        Uses OpenCV to rapidly draw the polygon instead of slow Python loops.
+        """
+        rows, cols = grid_shape
+        
+        # Convert coordinates from meters (Float) to pixels (Integer)
+        # OpenCV expects an array of points (x, y) of type int32
+        pts_float = np.array(geometry) / self.grid_resolution
+        pts_int = pts_float.astype(np.int32)
+        
+        # Create a black image
+        mask_img = np.zeros((rows, cols), dtype=np.uint8)
+        
+        # fillPoly fills the polygon with value 1 (white)
+        # The function expects a list of polygons, so we wrap in []
+        pts_reshaped = pts_int.reshape((-1, 1, 2))
+        cv2.fillPoly(mask_img, [pts_reshaped], 1)
+        
+        # Convert to boolean mask
+        return mask_img.astype(bool)
 
     def solve_step(self, geometry, current_grid=None):
         """
-        Performs a single simulation step using Finite Difference Method.
+        Performs a single simulation step.
         """
-        # 1. Determine Grid Dimensions
-        # Find bounding box of geometry to size the grid dynamically
+        # Calculate desired grid size based on geometry
         poly = np.array(geometry)
         max_x = np.max(poly[:, 0])
         max_y = np.max(poly[:, 1])
         
-        # Add some padding
+        # Add small padding
         width_meters = max_x + 1.0
         height_meters = max_y + 1.0
         
         cols = int(np.ceil(width_meters / self.grid_resolution))
         rows = int(np.ceil(height_meters / self.grid_resolution))
         
-        # 2. Initialize Grid if Needed
-        if current_grid is None or current_grid.shape != (rows, cols):
-            # Create new grid
-            current_grid = np.full((rows, cols), self.physics['wall_temp'])
-            
-            # Create mask for interior
-            mask = self._rasterize_geometry(geometry, (rows, cols))
-            
-            # Set initial room temp for interior points
-            current_grid[mask] = self.physics['initial_room_temp']
+        # === Check if Cache should be used ===
+        geo_hash = self._get_geometry_hash(geometry)
+        
+        # If we have a saved mask, and geometry/size haven't changed - use it
+        if (self._cached_mask is not None and 
+            self._last_geometry_hash == geo_hash and 
+            self._cached_grid_shape == (rows, cols)):
+            mask = self._cached_mask
         else:
-            mask = self._rasterize_geometry(geometry, current_grid.shape)
-            
-        # 3. Apply Heat Sources
+            # Otherwise, recalculate and save
+            mask = self._rasterize_geometry(geometry, (rows, cols))
+            self._cached_mask = mask
+            self._last_geometry_hash = geo_hash
+            self._cached_grid_shape = (rows, cols)
+
+        # Initialize Grid (if this is the first step)
+        if current_grid is None or current_grid.shape != (rows, cols):
+            current_grid = np.full((rows, cols), self.physics['wall_temp'])
+            current_grid[mask] = self.physics['initial_room_temp']
+        
+        # Apply Heat Sources
         for source in self.heat_sources:
-            # Map source (x, y) to grid indices
             sx, sy = source['x'], source['y']
             sr = source['radius']
             temp = source['temperature']
             
-            # Simple circular source
-            # Iterate over bounding box of source to avoid full grid scan
+            # Local optimization: Check only around the source (Bounding Box)
             r_start = int(max(0, (sy - sr) / self.grid_resolution))
             r_end = int(min(rows, (sy + sr) / self.grid_resolution + 1))
             c_start = int(max(0, (sx - sr) / self.grid_resolution))
             c_end = int(min(cols, (sx + sr) / self.grid_resolution + 1))
             
-            for r in range(r_start, r_end):
-                y = r * self.grid_resolution + self.grid_resolution/2
-                for c in range(c_start, c_end):
-                    x = c * self.grid_resolution + self.grid_resolution/2
-                    if (x - sx)**2 + (y - sy)**2 <= sr**2:
-                        current_grid[r, c] = temp
+            # Create local coordinate grid for vector distance check
+            y_indices, x_indices = np.ogrid[r_start:r_end, c_start:c_end]
+            y_coords = y_indices * self.grid_resolution + self.grid_resolution/2
+            x_coords = x_indices * self.grid_resolution + self.grid_resolution/2
+            
+            dist_sq = (x_coords - sx)**2 + (y_coords - sy)**2
+            source_mask = dist_sq <= sr**2
+            
+            # Update only in the relevant area
+            current_grid[r_start:r_end, c_start:c_end][source_mask] = temp
 
-        # 4. FDM Step
-        # u_new = u + alpha * dt * laplacian(u)
-        # Laplacian (2D central difference): (u[i+1,j] + u[i-1,j] + u[i,j+1] + u[i,j-1] - 4u[i,j]) / dx^2
-        
+        # Calculate FDM Step
         alpha = self.physics['thermal_diffusivity']
         dt = self.config['simulation_settings']['time_step_seconds']
         dx = self.grid_resolution
         
-        # Vectorized Laplacian using numpy.roll
         u = current_grid
         u_up = np.roll(u, -1, axis=0)
         u_down = np.roll(u, 1, axis=0)
@@ -129,15 +139,9 @@ class HeatMapSolver:
         
         laplacian = (u_up + u_down + u_left + u_right - 4*u) / (dx**2)
         
-        # Update grid
         new_grid = u + alpha * dt * laplacian
         
-        # 5. Apply Boundary Conditions
-        # Reset walls (outside mask) to wall_temp
+        # Enforce Boundary Conditions: Walls at constant temperature
         new_grid[~mask] = self.physics['wall_temp']
-        
-        # Fix boundary values caused by np.roll wrapping around
-        # (Though mask reset handles most, good to be explicit about edges if boundaries were open)
-        # Here, since we have a "room" inside a grid of "wall", the mask reset is sufficient.
         
         return new_grid

@@ -1,7 +1,7 @@
 {
   "simulation_settings": {
     "grid_resolution_meters": 0.1,
-    "time_step_seconds": 0.01,
+    "time_step_seconds": 0.001,
     "max_iterations": 1000
   },
   "physics_constants": {
@@ -10,6 +10,11 @@
     "wall_temp": 5.0
   },
   "heat_sources": [
-    { "x": 2.5, "y": 3.0, "temperature": 80.0, "radius": 0.5 }
+    {
+      "x": 2.5,
+      "y": 3.0,
+      "temperature": 80.0,
+      "radius": 0.5
+    }
   ]
 }
