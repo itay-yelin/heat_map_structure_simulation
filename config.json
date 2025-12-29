@@ -1,0 +1,15 @@
+{
+  "simulation_settings": {
+    "grid_resolution_meters": 0.1,
+    "time_step_seconds": 0.01,
+    "max_iterations": 1000
+  },
+  "physics_constants": {
+    "thermal_diffusivity": 1.9e-5,
+    "initial_room_temp": 20.0,
+    "wall_temp": 5.0
+  },
+  "heat_sources": [
+    { "x": 2.5, "y": 3.0, "temperature": 80.0, "radius": 0.5 }
+  ]
+}

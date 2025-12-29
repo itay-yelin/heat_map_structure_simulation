@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Heat Map Simulator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>2D Heat Map Simulator</h1>
+            <div class="controls">
+                <select id="geometrySelect">
+                    <option value="" disabled selected>Select Geometry</option>
+                </select>
+                <button id="runBtn">Run Simulation</button>
+                <div class="toggle-container">
+                    <input type="checkbox" id="toggleMesh">
+                    <label for="toggleMesh">Toggle Mesh</label>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-view">
+            <div class="canvas-container" id="geoContainer">
+                <h2>Geometry View (Input)</h2>
+                <canvas id="geometryCanvas"></canvas>
+            </div>
+            <div class="canvas-container" id="heatContainer">
+                <h2>Heatmap View (Output)</h2>
+                <canvas id="heatmapCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+
+</html>
