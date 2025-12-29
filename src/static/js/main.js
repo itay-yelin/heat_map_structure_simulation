@@ -46,10 +46,13 @@ geometrySelect.addEventListener('change', async (e) => {
     try {
         const response = await fetch(`/api/geometry/${filename}`);
         geometryData = await response.json();
+
         // Reset grid state when new geometry is loaded
+        // This will trigger a 'reset' flag in the next simulation loop
         gridState = null;
+
         renderGeometry();
-        renderHeatmap(); // Clear heatmap or render empty
+        renderHeatmap();
     } catch (err) {
         console.error("Failed to load geometry:", err);
     }
@@ -176,20 +179,30 @@ async function simulationLoop() {
         return;
     }
 
+    // === OPTIMIZATION FIX ===
+    // Determine if we need to tell the server to reset the simulation state.
+    // This happens if we don't have a grid yet (first run or new geometry loaded).
+    const shouldReset = (gridState === null);
+
     try {
         const response = await fetch('/simulate', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
+            // We NO LONGER send 'grid_state' here. 
+            // We only send the geometry and the reset flag.
             body: JSON.stringify({
                 geometry: geometryData,
-                grid_state: gridState
+                reset: shouldReset
             })
         });
 
         const data = await response.json();
+
+        // Update local grid with the new state from server
         gridState = data.grid;
+
         renderHeatmap();
 
         animationId = requestAnimationFrame(simulationLoop);
