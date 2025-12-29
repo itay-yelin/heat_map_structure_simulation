@@ -10,8 +10,8 @@ const playPauseBtn = document.getElementById('playPauseBtn');
 
 // === State ===
 let geometryData = null;
-let isSimulating = false; // Is the server calculating new frames?
-let isPlaying = false;    // Is the UI playing the animation?
+let isSimulating = false;
+let isPlaying = false;
 let showMesh = false;
 let animationId = null;
 
@@ -21,7 +21,6 @@ let currentFrameIndex = -1;
 
 // Resize canvases
 function resizeCanvas() {
-    // Assuming both canvases are in similar containers, we size them to their parents
     if (geometryCanvas.parentElement) {
         geometryCanvas.width = geometryCanvas.parentElement.clientWidth - 20;
         geometryCanvas.height = geometryCanvas.parentElement.clientHeight - 40;
@@ -79,13 +78,12 @@ document.getElementById('runBtn').addEventListener('click', () => {
     if (isSimulating) {
         btn.textContent = "Stop Calculation";
         btn.style.backgroundColor = "#af4c4c";
-        isPlaying = true; // Auto-play when starting
+        isPlaying = true;
         simulationLoop();
     } else {
         btn.textContent = "Resume Calculation";
         btn.style.backgroundColor = "";
-        // FIX: Stop playback too when manually stopping simulation
-        isPlaying = false;
+        isPlaying = false; // Stop playback when stopping simulation
     }
 });
 
@@ -105,7 +103,6 @@ timeSlider.addEventListener('input', (e) => {
 });
 
 function updateSliderUI() {
-    // Prevent index from getting stuck at -1 for UI purposes
     const max = Math.max(0, history.length - 1);
     timeSlider.max = max;
     timeSlider.value = Math.max(0, currentFrameIndex);
@@ -149,7 +146,6 @@ async function simulationLoop() {
             currentFrameIndex++;
             updateSliderUI();
         } else {
-            // Reached end of replay
             if (!isSimulating) {
                 isPlaying = false;
                 playPauseBtn.textContent = "▶";
@@ -164,9 +160,9 @@ async function simulationLoop() {
     }
 }
 
-// === RENDERING & SCALING ===
+// === RENDERING & SCALING (THE FIX) ===
 
-// Helper to calculate scale and offset to fit geometry in canvas
+// 1. Calculate Auto-Zoom
 function getTransform(ctx, points) {
     if (!points || points.length === 0) return { scale: 1, offsetX: 0, offsetY: 0 };
 
@@ -181,15 +177,17 @@ function getTransform(ctx, points) {
     const geomWidth = maxX - minX;
     const geomHeight = maxY - minY;
 
-    // Add 10% padding
+    // Add Padding
     const padding = 40;
     const availWidth = ctx.canvas.width - padding * 2;
     const availHeight = ctx.canvas.height - padding * 2;
 
+    // Determine scale to fit
     const scaleX = availWidth / geomWidth;
     const scaleY = availHeight / geomHeight;
-    const scale = Math.min(scaleX, scaleY); // Keep aspect ratio
+    const scale = Math.min(scaleX, scaleY);
 
+    // Center it
     const offsetX = padding - (minX * scale) + (availWidth - geomWidth * scale) / 2;
     const offsetY = padding - (minY * scale) + (availHeight - geomHeight * scale) / 2;
 
@@ -212,6 +210,7 @@ function renderGeometry() {
     geoCtx.strokeStyle = '#0f0';
     geoCtx.lineWidth = 2;
 
+    // Use Auto-Zoom
     const transform = getTransform(geoCtx, geometryData);
     drawPolygon(geoCtx, geometryData, transform);
     geoCtx.stroke();
@@ -220,55 +219,49 @@ function renderGeometry() {
 function renderHeatmap() {
     heatCtx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
 
-    // Always draw boundary even if no heat data exists yet
     if (geometryData) {
         const transform = getTransform(heatCtx, geometryData);
+
+        // Draw Heatmap Content
+        const gridState = history[currentFrameIndex];
+        if (gridState) {
+            const rows = gridState.length;
+            const cols = gridState[0].length;
+
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = cols; offCanvas.height = rows;
+            const offCtx = offCanvas.getContext('2d');
+            const imgData = offCtx.createImageData(cols, rows);
+            const data = imgData.data;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const val = gridState[r][c];
+                    const t = Math.min(Math.max(val / 100, 0), 1);
+                    const [rVal, gVal, bVal] = getHeatColorRGB(t);
+                    const index = (r * cols + c) * 4;
+                    data[index] = rVal; data[index + 1] = gVal; data[index + 2] = bVal; data[index + 3] = 255;
+                }
+            }
+
+            offCtx.putImageData(imgData, 0, 0);
+
+            heatCtx.save();
+            drawPolygon(heatCtx, geometryData, transform);
+            heatCtx.clip();
+
+            heatCtx.imageSmoothingEnabled = true;
+            heatCtx.imageSmoothingQuality = 'high';
+            heatCtx.drawImage(offCanvas, 0, 0, heatmapCanvas.width, heatmapCanvas.height);
+            heatCtx.restore();
+        }
+
+        // Draw Boundary on top
         heatCtx.strokeStyle = '#ffffff';
         heatCtx.lineWidth = 2;
         drawPolygon(heatCtx, geometryData, transform);
         heatCtx.stroke();
     }
-
-    const gridState = history[currentFrameIndex];
-    if (!gridState || !geometryData) return;
-
-    const rows = gridState.length;
-    const cols = gridState[0].length;
-
-    const offCanvas = document.createElement('canvas');
-    offCanvas.width = cols; offCanvas.height = rows;
-    const offCtx = offCanvas.getContext('2d');
-    const imgData = offCtx.createImageData(cols, rows);
-    const data = imgData.data;
-
-    for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-            const val = gridState[r][c];
-            const t = Math.min(Math.max(val / 100, 0), 1);
-            const [rVal, gVal, bVal] = getHeatColorRGB(t);
-            const index = (r * cols + c) * 4;
-            data[index] = rVal; data[index + 1] = gVal; data[index + 2] = bVal; data[index + 3] = 255;
-        }
-    }
-
-    offCtx.putImageData(imgData, 0, 0);
-
-    heatCtx.save();
-    // Clip using the same transform
-    const transform = getTransform(heatCtx, geometryData);
-    drawPolygon(heatCtx, geometryData, transform);
-    heatCtx.clip();
-
-    heatCtx.imageSmoothingEnabled = true;
-    heatCtx.imageSmoothingQuality = 'high';
-    heatCtx.drawImage(offCanvas, 0, 0, heatmapCanvas.width, heatmapCanvas.height);
-    heatCtx.restore();
-
-    // Redraw boundary on top for sharpness
-    heatCtx.strokeStyle = '#ffffff';
-    heatCtx.lineWidth = 2;
-    drawPolygon(heatCtx, geometryData, transform);
-    heatCtx.stroke();
 }
 
 function drawPolygon(ctx, points, { scale, offsetX, offsetY }) {
