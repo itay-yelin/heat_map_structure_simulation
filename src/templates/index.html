@@ -4,45 +4,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Heat Map Simulator</title>
+    <title>Heat Map Simulation</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 
 <body>
     <div class="container">
         <header>
-            <h1>2D Heat Map Simulator</h1>
-            <div class="controls">
-                <select id="geometrySelect">
-                    <option value="">Select Geometry...</option>
-                </select>
-                <button id="runBtn">Run Simulation</button>
-                <label class="toggle-container">
-                    <input type="checkbox" id="toggleMesh"> Show Mesh
-                </label>
-            </div>
+            <h1>Heat Map Simulator</h1>
+            <div class="header-right">
+                <div class="controls">
+                    <select id="geometrySelect">
+                        <option value="">Select Geometry...</option>
+                    </select>
+                    <button id="runBtn">Run Simulation</button>
+                    <label class="toggle-container">
+                        <input type="checkbox" id="toggleMesh"> Show Mesh
+                    </label>
+                </div>
 
-            <div class="timeline-controls"
-                style="margin-top: 10px; display: flex; align-items: center; gap: 10px; background: #333; padding: 10px; border-radius: 4px;">
-                <button id="playPauseBtn" style="font-size: 1.2rem; padding: 5px 15px;">⏯</button>
-                <input type="range" id="timeSlider" min="0" max="0" value="0" style="flex: 1;">
-                <span id="frameCounter" style="color: #ccc; font-family: monospace; min-width: 60px;">0 / 0</span>
+                <div class="timeline-controls">
+                    <button id="playPauseBtn" style="font-size: 1.2rem; padding: 5px 15px;">▶</button>
+                    <input type="range" id="timeSlider" min="0" max="0" value="0" style="flex: 1;">
+                    <span id="frameCounter">0 / 0</span>
+                </div>
             </div>
         </header>
 
         <div class="main-view">
-            <div class="canvas-container" id="geoContainer">
-                <h2>Geometry View (Input)</h2>
+            <div class="canvas-container">
+                <h2>Geometry Layout</h2>
                 <canvas id="geometryCanvas"></canvas>
             </div>
-            <div class="canvas-container" id="heatContainer">
-                <h2>Heatmap View (Output)</h2>
-                <div class="heatmap-wrapper">
-                    <canvas id="heatmapCanvas"></canvas>
-                    <div class="legend-container">
-                        <div class="legend-label">Hot</div>
-                        <div class="legend-bar"></div>
-                        <div class="legend-label">Cold</div>
+
+            <div class="canvas-container">
+                <h2>Thermal Simulation</h2>
+                <canvas id="heatmapCanvas"></canvas>
+
+                <div class="colorbar-container">
+                    <div class="colorbar-gradient"></div>
+                    <div class="colorbar-labels">
+                        <span>0°C (Cold)</span>
+                        <span>25°C</span>
+                        <span>50°C</span>
+                        <span>75°C</span>
+                        <span>100°C (Hot)</span>
                     </div>
                 </div>
             </div>

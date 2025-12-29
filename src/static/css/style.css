@@ -22,6 +22,7 @@ body {
     flex-direction: column;
     height: 100%;
     padding: 20px;
+    box-sizing: border-box;
 }
 
 header {
@@ -39,6 +40,16 @@ header {
     display: flex;
     gap: 15px;
     align-items: center;
+}
+
+.timeline-controls {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #333;
+    padding: 10px;
+    border-radius: 4px;
 }
 
 h1 {
@@ -68,20 +79,19 @@ select:hover {
     background-color: var(--accent-hover);
 }
 
-/* Specific styling for the select dropdown to match buttons */
 select {
     appearance: none;
     -webkit-appearance: none;
     border: 1px solid #555;
     background-color: #333;
     padding-right: 35px;
-    /* space for arrow if we added one, simple for now */
 }
 
 .main-view {
     display: flex;
     flex: 1;
     gap: 20px;
+    min-height: 0;
 }
 
 .canvas-container {
@@ -91,10 +101,14 @@ select {
     padding: 10px;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    position: relative;
+    /* For absolute positioning if needed */
 }
 
 h2 {
     margin-top: 0;
+    margin-bottom: 10px;
     text-align: center;
     font-size: 1.1rem;
     color: #aeaeae;
@@ -102,12 +116,11 @@ h2 {
 
 canvas {
     flex: 1;
-    width: 0;
-    /* Important for flex items to shrink properly */
+    /* === FIX: WIDTH 100% === */
+    width: 100%;
     min-width: 0;
     height: 100%;
     background-color: #000;
-    /* Deep black for the simulation void */
     border: 1px solid #333;
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
     border-radius: 4px;
@@ -117,6 +130,7 @@ canvas {
     display: flex;
     align-items: center;
     gap: 5px;
+    font-size: 0.9rem;
 }
 
 #frameCounter {
@@ -124,4 +138,29 @@ canvas {
     text-align: center;
     display: inline-block;
     font-variant-numeric: tabular-nums;
+}
+
+/* === NEW: Temperature Toolbar (Colorbar) === */
+.colorbar-container {
+    height: 40px;
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.colorbar-gradient {
+    height: 15px;
+    border-radius: 3px;
+    /* Gradient matches the HSL logic: Blue(Cold) -> Green -> Red(Hot) */
+    background: linear-gradient(to right, blue, cyan, lime, yellow, red);
+    border: 1px solid #555;
+}
+
+.colorbar-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: #ccc;
+    margin-top: 4px;
 }
