@@ -118,3 +118,10 @@ canvas {
     align-items: center;
     gap: 5px;
 }
+
+#frameCounter {
+    min-width: 100px;
+    text-align: center;
+    display: inline-block;
+    font-variant-numeric: tabular-nums;
+}

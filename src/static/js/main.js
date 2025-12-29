@@ -11,21 +11,25 @@ const playPauseBtn = document.getElementById('playPauseBtn');
 // === State ===
 let geometryData = null;
 let isSimulating = false; // Is the server calculating new frames?
-let isPlaying = false;    // Is the UI playing the animation (live or replay)?
+let isPlaying = false;    // Is the UI playing the animation?
 let showMesh = false;
 let animationId = null;
 
 // === History Buffer ===
-let history = []; // Stores all grid states: [grid1, grid2, ...]
+let history = [];
 let currentFrameIndex = -1;
 
 // Resize canvases
 function resizeCanvas() {
-    const parent = geometryCanvas.parentElement;
-    geometryCanvas.width = parent.clientWidth - 20;
-    geometryCanvas.height = parent.clientHeight - 40;
-    heatmapCanvas.width = parent.clientWidth - 20;
-    heatmapCanvas.height = parent.clientHeight - 40;
+    // Assuming both canvases are in similar containers, we size them to their parents
+    if (geometryCanvas.parentElement) {
+        geometryCanvas.width = geometryCanvas.parentElement.clientWidth - 20;
+        geometryCanvas.height = geometryCanvas.parentElement.clientHeight - 40;
+    }
+    if (heatmapCanvas.parentElement) {
+        heatmapCanvas.width = heatmapCanvas.parentElement.clientWidth - 20;
+        heatmapCanvas.height = heatmapCanvas.parentElement.clientHeight - 40;
+    }
     render();
 }
 window.addEventListener('resize', resizeCanvas);
@@ -68,7 +72,6 @@ document.getElementById('toggleMesh').addEventListener('change', (e) => {
 
 // === TIMELINE & PLAYBACK CONTROLS ===
 
-// 1. Run / Stop Simulation (Server Communication)
 document.getElementById('runBtn').addEventListener('click', () => {
     isSimulating = !isSimulating;
     const btn = document.getElementById('runBtn');
@@ -81,51 +84,48 @@ document.getElementById('runBtn').addEventListener('click', () => {
     } else {
         btn.textContent = "Resume Calculation";
         btn.style.backgroundColor = "";
-        // We don't stop the loop here, we just stop Fetching new data.
-        // The loop continues to handle UI/Replay.
+        // FIX: Stop playback too when manually stopping simulation
+        isPlaying = false;
     }
 });
 
-// 2. Play / Pause Animation (Client Side)
 playPauseBtn.addEventListener('click', () => {
     isPlaying = !isPlaying;
     playPauseBtn.textContent = isPlaying ? "⏸" : "▶";
-    if (isPlaying) simulationLoop(); // Restart loop if it was dead
+    if (isPlaying) simulationLoop();
 });
 
-// 3. Slider Interaction (Scrubbing)
 timeSlider.addEventListener('input', (e) => {
-    // If user moves slider, we pause auto-playback
-    isPlaying = false;
+    isPlaying = false; // Pause when scrubbing
     playPauseBtn.textContent = "▶";
 
-    // Jump to specific frame
     currentFrameIndex = parseInt(e.target.value);
     render();
     updateLabel();
 });
 
 function updateSliderUI() {
-    timeSlider.max = Math.max(0, history.length - 1);
-    timeSlider.value = currentFrameIndex;
+    // Prevent index from getting stuck at -1 for UI purposes
+    const max = Math.max(0, history.length - 1);
+    timeSlider.max = max;
+    timeSlider.value = Math.max(0, currentFrameIndex);
     updateLabel();
 }
 
 function updateLabel() {
-    frameCounter.textContent = `${currentFrameIndex} / ${history.length - 1}`;
+    const current = Math.max(0, currentFrameIndex);
+    const total = Math.max(0, history.length - 1);
+    frameCounter.textContent = `${current} / ${total}`;
 }
 
 // === MAIN LOOP ===
 async function simulationLoop() {
-    if (!isPlaying && !isSimulating) return; // Stop entirely if everything is paused
+    if (!isPlaying && !isSimulating) return;
 
-    // A. LIVE MODE: Fetch new data from server
-    // We only fetch if we are at the END of the history AND 'isSimulating' is true
     const atLiveEdge = (currentFrameIndex === history.length - 1) || (history.length === 0);
 
     if (isSimulating && atLiveEdge) {
         if (!geometryData) return;
-
         const shouldReset = (history.length === 0);
 
         try {
@@ -136,28 +136,22 @@ async function simulationLoop() {
             });
             const data = await response.json();
 
-            // Add to history
             history.push(data.grid);
             currentFrameIndex = history.length - 1;
-
             updateSliderUI();
         } catch (err) {
             console.error("Sim Error", err);
             isSimulating = false;
         }
     }
-    // B. REPLAY MODE: Just advance frame index
     else if (isPlaying && !atLiveEdge) {
         if (currentFrameIndex < history.length - 1) {
             currentFrameIndex++;
             updateSliderUI();
         } else {
-            // We hit the end of recorded history
-            if (isSimulating) {
-                // Determine to seamlessly switch back to fetching?
-                // For now, let's just stay here.
-            } else {
-                isPlaying = false; // Stop at end
+            // Reached end of replay
+            if (!isSimulating) {
+                isPlaying = false;
                 playPauseBtn.textContent = "▶";
             }
         }
@@ -166,12 +160,42 @@ async function simulationLoop() {
     render();
 
     if (isPlaying || isSimulating) {
-        // Use a slight delay if replay is too fast, or raw requestAnimationFrame
         animationId = requestAnimationFrame(simulationLoop);
     }
 }
 
-// === RENDERING ===
+// === RENDERING & SCALING ===
+
+// Helper to calculate scale and offset to fit geometry in canvas
+function getTransform(ctx, points) {
+    if (!points || points.length === 0) return { scale: 1, offsetX: 0, offsetY: 0 };
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    points.forEach(p => {
+        if (p[0] < minX) minX = p[0];
+        if (p[0] > maxX) maxX = p[0];
+        if (p[1] < minY) minY = p[1];
+        if (p[1] > maxY) maxY = p[1];
+    });
+
+    const geomWidth = maxX - minX;
+    const geomHeight = maxY - minY;
+
+    // Add 10% padding
+    const padding = 40;
+    const availWidth = ctx.canvas.width - padding * 2;
+    const availHeight = ctx.canvas.height - padding * 2;
+
+    const scaleX = availWidth / geomWidth;
+    const scaleY = availHeight / geomHeight;
+    const scale = Math.min(scaleX, scaleY); // Keep aspect ratio
+
+    const offsetX = padding - (minX * scale) + (availWidth - geomWidth * scale) / 2;
+    const offsetY = padding - (minY * scale) + (availHeight - geomHeight * scale) / 2;
+
+    return { scale, offsetX, offsetY };
+}
+
 function render() {
     renderGeometry();
     renderHeatmap();
@@ -184,20 +208,30 @@ function renderGeometry() {
         geoCtx.fillText('No geometry loaded', 20, 40);
         return;
     }
-    geoCtx.strokeStyle = '#0f0'; geoCtx.lineWidth = 2;
-    drawPolygon(geoCtx, geometryData);
+
+    geoCtx.strokeStyle = '#0f0';
+    geoCtx.lineWidth = 2;
+
+    const transform = getTransform(geoCtx, geometryData);
+    drawPolygon(geoCtx, geometryData, transform);
     geoCtx.stroke();
 }
 
 function renderHeatmap() {
     heatCtx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
 
-    // Get the specific grid from history based on slider
-    const gridState = history[currentFrameIndex];
+    // Always draw boundary even if no heat data exists yet
+    if (geometryData) {
+        const transform = getTransform(heatCtx, geometryData);
+        heatCtx.strokeStyle = '#ffffff';
+        heatCtx.lineWidth = 2;
+        drawPolygon(heatCtx, geometryData, transform);
+        heatCtx.stroke();
+    }
 
+    const gridState = history[currentFrameIndex];
     if (!gridState || !geometryData) return;
 
-    // Use the optimized Canvas scaling method
     const rows = gridState.length;
     const cols = gridState[0].length;
 
@@ -218,19 +252,26 @@ function renderHeatmap() {
     }
 
     offCtx.putImageData(imgData, 0, 0);
+
     heatCtx.save();
-    drawPolygon(heatCtx, geometryData);
+    // Clip using the same transform
+    const transform = getTransform(heatCtx, geometryData);
+    drawPolygon(heatCtx, geometryData, transform);
     heatCtx.clip();
+
     heatCtx.imageSmoothingEnabled = true;
     heatCtx.imageSmoothingQuality = 'high';
     heatCtx.drawImage(offCanvas, 0, 0, heatmapCanvas.width, heatmapCanvas.height);
     heatCtx.restore();
 
-    if (showMesh) { /* Mesh drawing logic optional here */ }
+    // Redraw boundary on top for sharpness
+    heatCtx.strokeStyle = '#ffffff';
+    heatCtx.lineWidth = 2;
+    drawPolygon(heatCtx, geometryData, transform);
+    heatCtx.stroke();
 }
 
-function drawPolygon(ctx, points) {
-    const scale = 50; const offsetX = 50; const offsetY = 50;
+function drawPolygon(ctx, points, { scale, offsetX, offsetY }) {
     ctx.beginPath();
     points.forEach((p, i) => {
         const x = p[0] * scale + offsetX;
