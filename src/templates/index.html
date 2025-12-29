@@ -14,13 +14,19 @@
             <h1>2D Heat Map Simulator</h1>
             <div class="controls">
                 <select id="geometrySelect">
-                    <option value="" disabled selected>Select Geometry</option>
+                    <option value="">Select Geometry...</option>
                 </select>
                 <button id="runBtn">Run Simulation</button>
-                <div class="toggle-container">
-                    <input type="checkbox" id="toggleMesh">
-                    <label for="toggleMesh">Toggle Mesh</label>
-                </div>
+                <label class="toggle-container">
+                    <input type="checkbox" id="toggleMesh"> Show Mesh
+                </label>
+            </div>
+
+            <div class="timeline-controls"
+                style="margin-top: 10px; display: flex; align-items: center; gap: 10px; background: #333; padding: 10px; border-radius: 4px;">
+                <button id="playPauseBtn" style="font-size: 1.2rem; padding: 5px 15px;">⏯</button>
+                <input type="range" id="timeSlider" min="0" max="0" value="0" style="flex: 1;">
+                <span id="frameCounter" style="color: #ccc; font-family: monospace; min-width: 60px;">0 / 0</span>
             </div>
         </header>
 
@@ -31,7 +37,14 @@
             </div>
             <div class="canvas-container" id="heatContainer">
                 <h2>Heatmap View (Output)</h2>
-                <canvas id="heatmapCanvas"></canvas>
+                <div class="heatmap-wrapper">
+                    <canvas id="heatmapCanvas"></canvas>
+                    <div class="legend-container">
+                        <div class="legend-label">Hot</div>
+                        <div class="legend-bar"></div>
+                        <div class="legend-label">Cold</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

@@ -126,22 +126,47 @@ class HeatMapSolver:
             # Update only in the relevant area
             current_grid[r_start:r_end, c_start:c_end][source_mask] = temp
 
-        # Calculate FDM Step
+        # === PHYSICS UPDATE ===
         alpha = self.physics['thermal_diffusivity']
         dt = self.config['simulation_settings']['time_step_seconds']
         dx = self.grid_resolution
         
         u = current_grid
+        
+        # 1. Create neighbor shifts
         u_up = np.roll(u, -1, axis=0)
         u_down = np.roll(u, 1, axis=0)
         u_left = np.roll(u, -1, axis=1)
         u_right = np.roll(u, 1, axis=1)
         
+        # 2. NEUMANN BOUNDARY CONDITIONS (Insulation)
+        # Shift the mask to find where the walls are relative to each pixel
+        mask_up = np.roll(mask, -1, axis=0)
+        mask_down = np.roll(mask, 1, axis=0)
+        mask_left = np.roll(mask, -1, axis=1)
+        mask_right = np.roll(mask, 1, axis=1)
+        
+        # If a neighbor is a wall (False in mask), use the current cell's temp
+        # This makes the gradient 0 (no heat flow into the wall)
+        u_up = np.where(mask_up, u_up, u)
+        u_down = np.where(mask_down, u_down, u)
+        u_left = np.where(mask_left, u_left, u)
+        u_right = np.where(mask_right, u_right, u)
+        
+        # 3. CONVECTION (Heat Rises)
+        # Simple advection: shift heat from bottom to top
+        # buoyant_velocity * (dT/dy)
+        buoyancy_factor = 0.5 * dt # Adjustable parameter
+        advection = (u - u_down)   # Wind coming from below
+        
+        # 4. Final Calculation
         laplacian = (u_up + u_down + u_left + u_right - 4*u) / (dx**2)
         
-        new_grid = u + alpha * dt * laplacian
+        # Update: Diffusion + Convection
+        change = (alpha * dt * laplacian) - (buoyancy_factor * advection)
         
-        # Enforce Boundary Conditions: Walls at constant temperature
-        new_grid[~mask] = self.physics['wall_temp']
+        new_grid = u.copy()
+        # Only update the interior of the room
+        new_grid[mask] += change[mask]
         
         return new_grid
