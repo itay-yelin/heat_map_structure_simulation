@@ -118,55 +118,108 @@ function drawPolygon(ctx, points) {
 function renderHeatmap() {
     heatCtx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
 
-    if (!gridState && !geometryData) {
-        heatCtx.fillStyle = '#666';
-        heatCtx.font = '20px Arial';
-        heatCtx.fillText('No data', 20, 40);
+    if (!gridState || !geometryData) {
+        if (!gridState && !geometryData) {
+            heatCtx.fillStyle = '#666';
+            heatCtx.font = '20px Arial';
+            heatCtx.fillText('No data', 20, 40);
+        }
         return;
     }
 
-    // 1. Draw Heatmap (Clipped)
-    if (gridState && geometryData) {
-        heatCtx.save();
+    const rows = gridState.length;
+    const cols = gridState[0].length;
 
-        // Create clipping region from geometry
-        drawPolygon(heatCtx, geometryData);
-        heatCtx.clip();
+    // 1. Create a tiny off-screen canvas (Size = Grid Dimensions)
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = cols;
+    offCanvas.height = rows;
+    const offCtx = offCanvas.getContext('2d');
 
-        const rows = gridState.length;
-        const cols = gridState[0].length;
+    // 2. Create an ImageData object to manipulate pixels directly
+    const imgData = offCtx.createImageData(cols, rows);
+    const data = imgData.data;
 
-        const cellWidth = heatmapCanvas.width / cols;
-        const cellHeight = heatmapCanvas.height / rows;
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const val = gridState[r][c];
+            // Normalize 0..1 (Assuming max temp is roughly 100 for now)
+            const t = Math.min(Math.max(val / 100, 0), 1);
 
-        // Draw simple tiles (could be optimized with larger rects or ImageData)
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                const val = gridState[r][c];
-                // Simple heatmap coloring: Blue (cold) to Red (hot)
-                const intensity = Math.min(Math.max(val / 100, 0), 1);
-                const red = Math.floor(intensity * 255);
-                const blue = Math.floor((1 - intensity) * 255);
+            // Get color from improved palette
+            const [rVal, gVal, bVal] = getHeatColorRGB(t);
 
-                heatCtx.fillStyle = `rgb(${red}, 0, ${blue})`;
-                heatCtx.fillRect(c * cellWidth, r * cellHeight, cellWidth, cellHeight);
-
-                if (showMesh) {
-                    heatCtx.strokeStyle = 'rgba(255,255,255,0.1)';
-                    heatCtx.strokeRect(c * cellWidth, r * cellHeight, cellWidth, cellHeight);
-                }
-            }
+            // Calculate 1D index for the pixel
+            const index = (r * cols + c) * 4;
+            data[index] = rVal;     // Red
+            data[index + 1] = gVal; // Green
+            data[index + 2] = bVal; // Blue
+            data[index + 3] = 255;  // Alpha (Opacity)
         }
-        heatCtx.restore();
     }
 
-    // 2. Draw Polygon Overlay
-    if (geometryData) {
-        heatCtx.strokeStyle = '#fff';
-        heatCtx.lineWidth = 2;
-        drawPolygon(heatCtx, geometryData);
-        heatCtx.stroke();
+    // 3. Put data into the tiny canvas
+    offCtx.putImageData(imgData, 0, 0);
+
+    // 4. Draw the tiny canvas onto the main canvas (STRETCHED)
+    // Save context to apply clipping
+    heatCtx.save();
+
+    // Create clipping mask from geometry
+    drawPolygon(heatCtx, geometryData);
+    heatCtx.clip();
+
+    // Enable smoothing for the nice gradient effect
+    heatCtx.imageSmoothingEnabled = true;
+    heatCtx.imageSmoothingQuality = 'high';
+
+    // Draw!
+    heatCtx.drawImage(offCanvas, 0, 0, heatmapCanvas.width, heatmapCanvas.height);
+
+    heatCtx.restore();
+
+    // 5. Draw overlay boundary
+    heatCtx.strokeStyle = '#ffffff';
+    heatCtx.lineWidth = 2;
+    drawPolygon(heatCtx, geometryData);
+    heatCtx.stroke();
+}
+
+function getHeatColorRGB(t) {
+    // t is 0.0 (Cold) to 1.0 (Hot)
+
+    // Map t to Hue: 
+    // 0.0 -> 240 deg (Blue)
+    // 0.5 -> 120 deg (Green)
+    // 1.0 -> 0 deg (Red)
+    const hue = (1.0 - t) * 240;
+
+    // Convert HSL to RGB (Standard formula or use a canvas trick)
+    // Simple HSL to RGB conversion for Saturation=100%, Lightness=50%
+    return hslToRgb(hue / 360, 1.0, 0.5);
+}
+
+// Helper to convert HSL to [r,g,b]
+function hslToRgb(h, s, l) {
+    let r, g, b;
+    if (s === 0) {
+        r = g = b = l;
+    } else {
+        const hue2rgb = (p, q, t) => {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1 / 6) return p + (q - p) * 6 * t;
+            if (t < 1 / 2) return q;
+            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+            return p;
+        };
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1 / 3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1 / 3);
     }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
 }
 
 async function simulationLoop() {
